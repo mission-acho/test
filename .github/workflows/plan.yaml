@@ -1,0 +1,63 @@
+name: "Terraform Plan on push"
+on:
+  push:
+    branches-ignore:
+      - main
+
+env:
+  TF_VERSION: 0.14.9
+  TF_INPUT: 0
+  TF_IN_AUTOMATION: true
+  EXPAND_SUMMARY_DETAILS: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan_terraform:
+    name: "Terraform Plan Actions"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Set Env"
+        run: echo "GH_BRANCH=$( echo ${{ github.ref }} | cut -d / -f 3)" >> $GITHUB_ENV
+      - name: "Checkout"
+        uses: actions/checkout@master
+      - name: "Configure Deploy Keys"
+        uses: webfactory/ssh-agent@v0.4.1
+        with:
+          ssh-private-key: ${{ secrets.IMPORTABLE_MODULES_DEPLOY_KEY }}
+      - name: "Configure AWS credentials"
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-west-2
+      - name: "setup-terraform"
+        uses: hashicorp/setup-terraform@v1.2.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+        continue-on-error: true
+      - name: Terraform fmt
+        id: fmt
+        run: terraform fmt -check
+        continue-on-error: true
+      - name: "Terraform init"
+        id: debug
+        run: echo '1' | TF_WORKSPACE= terraform -chdir=tf/envs/$GH_BRANCH init
+        continue-on-error: true
+      - name: "Terraform Validate"
+        id: validate
+        run: TF_WORKSPACE=$GH_BRANCH terraform -chdir=tf/envs/$GH_BRANCH validate -no-color
+        env:
+          TF_INPUT: 0
+          TF_IN_AUTOMATION: true
+      - name: "Terraform Plan"
+        id: plan
+        run: echo '1' | TF_WORKSPACE=$GH_BRANCH terraform -chdir=tf/envs/$GH_BRANCH plan -no-color
+        env:
+          TF_INPUT: 0
+          TF_IN_AUTOMATION: true       
+
+          
