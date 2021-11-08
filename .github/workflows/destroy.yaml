@@ -1,0 +1,43 @@
+name: "Terraform destroy"
+on:
+  workflow_dispatch:
+
+env:
+  TF_VERSION: 0.14.9
+
+jobs:
+  destroy_terraform:
+    name: "Destroy on external trigger"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@master
+      - name: "Configure Deploy Keys"
+        uses: webfactory/ssh-agent@v0.4.1
+        with:
+          ssh-private-key: ${{ secrets.IMPORTABLE_MODULES_DEPLOY_KEY }}
+      - name: "Configure AWS credentials"
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-west-2
+      - name: "setup-terraform"
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: "Terraform init"
+        id: debug
+        run: echo '1' | TF_WORKSPACE=$( echo ${{ github.ref }} | cut -d / -f 3) terraform -chdir=tf/envs/$( echo ${{ github.ref }} | cut -d / -f 3) init
+      - name: "Terraform Validate"
+        id: validate
+        run: TF_WORKSPACE=$( echo ${{ github.ref }} | cut -d / -f 3) terraform -chdir=tf/envs/$( echo ${{ github.ref }} | cut -d / -f 3) terraform -chdir=tf/envs/$( echo ${{ github.ref }} | cut -d / -f 3) validate -no-color
+        env:
+          TF_INPUT: 0
+          TF_IN_AUTOMATION: true
+      - name: "Terraform Destroy"
+        id: plan
+        run: echo '1' | TF_WORKSPACE=$( echo ${{ github.ref }} | cut -d / -f 3) terraform -chdir=tf/envs/$( echo ${{ github.ref }} | cut -d / -f 3) destroy -input-false -auto-appove -no-color
+        env:
+          TF_INPUT: 0
+          TF_IN_AUTOMATION: true
