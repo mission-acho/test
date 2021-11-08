@@ -1,0 +1,63 @@
+name: "Terraform apply on merge"
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+env:
+  TF_VERSION: 0.14.9
+  TF_INPUT: 0
+  TF_IN_AUTOMATION: true
+  EXPAND_SUMMARY_DETAILS: false
+
+jobs:
+  merge-PR:
+    if: github.event.pull_request.merged == true
+    name: "Apply terraform on merged pull request"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Set Env"
+        run: echo "GH_HEAD_BRANCH=$( echo ${{ github.head_ref }} | cut -d / -f 1)" >> $GITHUB_ENV
+      - name: "Checkout"
+        uses: actions/checkout@master
+      - name: "Configure AWS credentials"
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-east-1
+      - name: "Configure Deploy Keys"
+        uses: webfactory/ssh-agent@v0.4.1
+        with:
+          ssh-private-key: ${{ secrets.IMPORTABLE_MODULES_DEPLOY_KEY }}
+      - name: "setup-terraform"
+        uses: hashicorp/setup-terraform@v1.2.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: "Terraform init"
+        id: debug
+        run: echo '1' | TF_WORKSPACE=$GH_HEAD_BRANCH terraform -chdir=tf/envs/$GH_HEAD_BRANCH init
+      - name: "Terraform Validate"
+        id: validate
+        run: TF_WORKSPACE=$GH_HEAD_BRANCH terraform -chdir=tf/envs/$GH_HEAD_BRANCH validate -no-color
+      - name: "Terraform Plan"
+        id: plan
+        run: echo '1' | TF_WORKSPACE=$GH_HEAD_BRANCH terraform -chdir=tf/envs/$GH_HEAD_BRANCH plan -no-color
+        continue-on-error: true
+        env:
+          TF_INPUT: 0
+      - name: Post Plan
+        if: always() && github.ref != 'refs/heads/main' && (steps.plan.outcome == 'success' || steps.plan.outcome == 'failure')
+        uses: robburger/terraform-pr-commenter@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          commenter_type: plan
+          commenter_input: ${{ format('{0}{1}', steps.plan.outputs.stdout, steps.plan.outputs.stderr) }}
+          commenter_exitcode: ${{ steps.plan.outputs.exitcode }}
+      - name: "Terraform Apply"
+        id: apply
+        run: echo '1' | TF_WORKSPACE=$GH_HEAD_BRANCH terraform -chdir=tf/envs/$GH_HEAD_BRANCH apply -no-color -input=false -auto-approve
+        env:
+          TF_INPUT: 0
